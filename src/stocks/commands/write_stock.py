@@ -24,11 +24,42 @@ def set_stock_for_product(product_id, quantity):
             new_stock = Stock(product_id=product_id, quantity=quantity)
             session.add(new_stock)
             session.flush() 
-            session.commit()
             response_message = f"rows added: {new_stock.product_id}"
+        else:
+            response_message = f"rows updated: {result.rowcount}"
+        
+        # Récupérer les informations complètes du produit depuis MySQL AVANT le commit
+        product_info = session.execute(
+            text("SELECT name, sku, price FROM products WHERE id = :pid"),
+            {"pid": product_id}
+        ).first()
+        
+        # Commit dans tous les cas
+        session.commit()
   
+        # Mettre à jour Redis en préservant les informations existantes
         r = get_redis_conn()
-        r.hset(f"stock:{product_id}", "quantity", quantity)
+        
+        # Récupérer les données actuelles de Redis
+        current_redis_data = r.hgetall(f"stock:{product_id}")
+        
+        if current_redis_data and current_redis_data.get('name'):
+            # Préserver les informations existantes, changer seulement la quantité
+            r.hset(f"stock:{product_id}", "quantity", quantity)
+        else:
+            # Première fois ou pas d'infos dans Redis, ajouter toutes les informations
+            if product_info:
+                stock_data = {
+                    "quantity": quantity,
+                    "name": product_info.name or "Produit inconnu",
+                    "sku": product_info.sku or "N/A", 
+                    "price": str(product_info.price) if product_info.price else "0.0"
+                }
+                r.hset(f"stock:{product_id}", mapping=stock_data)
+            else:
+                # Fallback si le produit n'existe pas
+                r.hset(f"stock:{product_id}", "quantity", quantity)
+        
         return response_message
     except Exception as e:
         session.rollback()
@@ -80,16 +111,47 @@ def update_stock_redis(order_items, operation):
             else:
                 product_id = item['product_id']
                 quantity = item['quantity']
-            # TODO: ajoutez plus d'information sur l'article
-            current_stock = r.hget(f"stock:{product_id}", "quantity")
-            current_stock = int(current_stock) if current_stock else 0
+            current_stock_data = r.hgetall(f"stock:{product_id}")
+            current_stock = int(current_stock_data.get('quantity', 0))
             
             if operation == '+':
                 new_quantity = current_stock + quantity
             else:  
                 new_quantity = current_stock - quantity
             
-            pipeline.hset(f"stock:{product_id}", "quantity", new_quantity)
+            stock_update = {"quantity": new_quantity}
+            
+            if not current_stock_data.get('name'):
+                session = get_sqlalchemy_session()
+                try:
+                    product_info = session.execute(
+                        text("SELECT name, sku, price FROM products WHERE id = :pid"),
+                        {"pid": product_id}
+                    ).first()
+                    
+                    if product_info:
+                        stock_update.update({
+                            "name": product_info.name or "Produit inconnu",
+                            "sku": product_info.sku or "N/A", 
+                            "price": str(product_info.price) if product_info.price else "0.0"
+                        })
+                except Exception as e:
+                    print(f"Erreur MySQL: {e}")
+                    stock_update.update({
+                        "name": f"Produit {product_id}",
+                        "sku": "N/A",
+                        "price": "0.0"
+                    })
+                finally:
+                    session.close()
+            else:
+                stock_update.update({
+                    "name": current_stock_data.get('name'),
+                    "sku": current_stock_data.get('sku', 'N/A'),
+                    "price": current_stock_data.get('price', '0.0')
+                })
+            
+            pipeline.hset(f"stock:{product_id}", mapping=stock_update)
         
         pipeline.execute()
     
@@ -100,8 +162,13 @@ def _populate_redis_from_mysql(redis_conn):
     """ Helper function to populate Redis from MySQL stocks table """
     session = get_sqlalchemy_session()
     try:
+        # JOIN stocks avec products pour récupérer toutes les informations
         stocks = session.execute(
-            text("SELECT product_id, quantity FROM stocks")
+            text("""
+                SELECT s.product_id, s.quantity, p.name, p.sku, p.price 
+                FROM stocks s 
+                LEFT JOIN products p ON s.product_id = p.id
+            """)
         ).fetchall()
 
         if not len(stocks):
@@ -110,10 +177,24 @@ def _populate_redis_from_mysql(redis_conn):
         
         pipeline = redis_conn.pipeline()
         
-        for product_id, quantity in stocks:
+        for stock_row in stocks:
+            product_id, quantity, name, sku, price = stock_row
+            
+            stock_data = {
+                "quantity": quantity
+            }
+            
+            # Ajouter les informations du produit si disponibles
+            if name:
+                stock_data.update({
+                    "name": name,
+                    "sku": sku or "N/A",
+                    "price": str(price) if price else "0.0"
+                })
+            
             pipeline.hset(
                 f"stock:{product_id}", 
-                mapping={ "quantity": quantity }
+                mapping=stock_data
             )
         
         pipeline.execute()
