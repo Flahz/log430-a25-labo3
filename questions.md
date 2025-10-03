@@ -1,6 +1,4 @@
-## Question 1 : Quel nombre d'unités de stock pour votre article avez-vous obtenu à la fin du test ? Et pour l'article avec id=2 ? Veuillez incl
-
-Cette architecture permet au conteneur supplier (scripts) d'accéder à l'API GraphQL du conteneur principal sans exposition externe des ports.re la sortie de votre Postman pour illustrer votre réponse.
+## Question 1 : Quel nombre d'unités de stock pour votre article avez-vous obtenu à la fin du test ? Et pour l'article avec id=2 ? Veuillez inclure la sortie de votre Postman pour illustrer votre réponse.
 
 ### Résultats obtenus
 
@@ -17,15 +15,15 @@ Cette architecture permet au conteneur supplier (scripts) d'accéder à l'API Gr
 
 ```bash
 tests/test_store_manager.py::test_stock_flow 
-✓ API Health Check: {'status': 'ok'}
-✓ Produit créé avec ID: 7
-✓ Utilisateur créé avec ID: 7
-✓ Stock créé - 5 unités ajoutées
-✓ Stock vérifié: 5 unités disponibles
-✓ Commande créée avec ID: 2 - 2 unités commandées
-✓ Stock après commande: 3 unités restantes
-✓ Commande 2 supprimée
-✓ Stock après suppression de commande: 5 unités (restauré)
+API Health Check: {'status': 'ok'}
+Produit créé avec ID: 7
+Utilisateur créé avec ID: 7
+Stock créé - 5 unités ajoutées
+Stock vérifié: 5 unités disponibles
+Commande créée avec ID: 2 - 2 unités commandées
+Stock après commande: 3 unités restantes
+Commande 2 supprimée
+Stock après suppression de commande: 5 unités (restauré)
 Smoke test du flux de stock terminé avec succès!
 ```
 
@@ -78,7 +76,6 @@ def get_stock_for_all_products():
 
 #### Pourquoi LEFT JOIN au lieu d'INNER JOIN ?
 
-**LEFT JOIN (`.outerjoin()`) - Choix recommandé :**
 - Inclut TOUS les stocks, même sans produit correspondant
 - Évite la perte de données en cas d'incohérence
 - Gère les cas où un produit pourrait être supprimé mais le stock reste
@@ -87,8 +84,6 @@ def get_stock_for_all_products():
 ## Question 3 : Quels résultats avez-vous obtenus en utilisant l’endpoint POST /stocks/graphql-query avec la requête suggérée ? Veuillez joindre la sortie de votre requête dans Postman afin d’illustrer votre réponse.
 
 ![alt text](image-1.png)
-
-## Question 4 : Quelles lignes avez-vous changé dans update_stock_redis? Veuillez joindre du code afin d’illustrer votre réponse.
 
 ## Question 4 : Quelles lignes avez-vous changé dans update_stock_redis? Veuillez joindre du code afin d'illustrer votre réponse.
 
@@ -137,9 +132,6 @@ else:
 
 pipeline.hset(f"stock:{product_id}", mapping=stock_update)
 ```
-
-
-
 ## Question 5 : Quels résultats avez-vous obtenus en utilisant l’endpoint POST /stocks/graphql-query avec les améliorations ? Veuillez joindre la sortie de votre requête dans Postman afin d’illustrer votre réponse.
 
 ![alt text](image-2.png)
@@ -169,9 +161,6 @@ networks:
 #### **Mécanisme de communication :**
 
 Les conteneurs communiquent par **résolution DNS automatique** via le réseau `labo03-network`. Chaque service peut être contacté par son nom :
-
-- `supplier_app` peut appeler `log430-a25-labo3-store_manager:5000`
-- Le store_manager peut accéder à `log430-a25-labo3-mysql-1:3306` et `log430-a25-labo3-redis-1:6379`
 
 
 

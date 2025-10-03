@@ -1,35 +1,105 @@
-name: CI
+name: example_CI
 
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
+on: [push, pull_request]
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0-debian
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: labo02_db
+          MYSQL_USER: labo02
+          MYSQL_PASSWORD: labo02
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: --health-cmd="redis-cli ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
+      - name: Checkout dépot
+        uses: actions/checkout@v3
+
+      - name: Installer Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      - name: Install dependencies
+
+      - name: Installer les dépendances
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install pytest
+
+      - name: Attendre que MySQL soit prêt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mysql-client
+          for i in {30..0}; do
+            if mysql -h 127.0.0.1 -u root -proot -e 'SELECT 1'; then
+              break
+            fi
+            echo 'MySQL is unavailable - sleeping'
+            sleep 1
+          done
+
+      - name: Initialiser la base de données
+        run: |
+          mysql -h 127.0.0.1 -u root -proot labo02_db < db-init/init.sql
 
       - name: Creer fichier .env
         run: |
           echo "DB_HOST=127.0.0.1" >> .env
           echo "DB_PORT=3306" >> .env
-          echo "DB_NAME=labo03_db" >> .env
-          echo "DB_USER=labo03" >> .env
-          echo "DB_PASS=labo03" >> .env
+          echo "DB_NAME=labo02_db" >> .env
+          echo "DB_USER=root" >> .env
+          echo "DB_PASSWORD=root" >> .env
           echo "REDIS_HOST=127.0.0.1" >> .env
           echo "REDIS_PORT=6379" >> .env
           echo "REDIS_DB=0" >> .env
 
-      - name: Run tests
-        working-directory: src
-        run: echo "Call pytest command here!"
+      - name: Exécuter les tests
+        run: |
+          cd src
+          python -m pytest tests/test_store_manager.py -v
+
+  deploy:
+    needs: build
+    runs-on: self-hosted
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Deploy locally
+        run: |
+          # Naviguer vers le répertoire de l'application
+          cd ~/log430-a25-labo2
+          
+          # Mettre à jour le code depuis GitHub
+          git pull origin main
+          
+          # Arrêter les conteneurs existants
+          docker compose down
+          
+          # Reconstruire les images avec le nouveau code
+          docker compose build --no-cache
+          
+          # Redémarrer les services
+          docker compose up -d
+          
+          # Vérifier que tout fonctionne
+          sleep 5
+          docker compose ps
+          
+          echo "Deployment completed successfully!!!"
+            
